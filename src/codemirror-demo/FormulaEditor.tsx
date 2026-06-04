@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
@@ -17,6 +17,7 @@ import {
 } from './constants'
 import { createFormulaCompletionSource } from './formulaCompletions'
 import { atomicVariables } from './atomicVariable'
+import { getCurrentParamIndex, getHighlightedParam } from './functionParams'
 import './index.scss'
 
 interface Props {
@@ -47,6 +48,7 @@ export default function FormulaEditor({
   const [value, setValue] = useState(initialValue)
   const [activeFn, setActiveFn] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [highlightedParam, setHighlightedParam] = useState<string | null>(null)
   const editorRef = useRef<{ view: EditorView; state: unknown } | null>(null)
 
   // 计算实际使用的函数列表
@@ -80,8 +82,35 @@ export default function FormulaEditor({
       }),
       keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...completionKeymap]),
       atomicVariables(),
+      EditorView.updateListener.of((update) => {
+        if (update.selectionSet) {
+          const view = update.view
+          const state = view.state
+          const selection = state.selection.main
+          
+          // 只有当没有选中内容时才更新高亮
+          if (selection.from === selection.to) {
+            const cursorPos = selection.from
+            const paramInfo = getCurrentParamIndex(state, cursorPos)
+            
+            if (paramInfo) {
+              const fn = functions.find(f => f.name.toUpperCase() === paramInfo.fnName)
+              if (fn) {
+                const highlighted = getHighlightedParam(fn, paramInfo.paramIndex)
+                setHighlightedParam(highlighted)
+                return
+              }
+            }
+            
+            setHighlightedParam(null)
+          } else {
+            // 如果有选中内容，不高亮
+            setHighlightedParam(null)
+          }
+        }
+      }),
     ],
-    [completionSource]
+    [completionSource, functions]
   )
 
   const handleChange = useCallback(
@@ -174,7 +203,26 @@ export default function FormulaEditor({
         {activeFnDef && (
           <div className="cm-formula-editor__signature">
             <span className="cm-formula-editor__signature-name">{activeFnDef.name}</span>
-            <span className="cm-formula-editor__signature-text">{activeFnDef.signature}</span>
+            <span className="cm-formula-editor__signature-text">
+              {(() => {
+                const sig = activeFnDef.signature
+                if (!highlightedParam) return sig
+                
+                // 找到高亮参数在签名中的位置并高亮显示
+                const paramIndex = sig.indexOf(highlightedParam)
+                if (paramIndex === -1) return sig
+                
+                return (
+                  <>
+                    {sig.slice(0, paramIndex)}
+                    <span className="cm-formula-editor__signature-highlight">
+                      {highlightedParam}
+                    </span>
+                    {sig.slice(paramIndex + highlightedParam.length)}
+                  </>
+                )
+              })()}
+            </span>
             <span className="cm-formula-editor__signature-detail">{activeFnDef.detail}</span>
           </div>
         )}

@@ -87,6 +87,13 @@
       color: #86909c;
       font-size: 12px;
     }
+
+    &-highlight {
+      background: #fff3cd;
+      padding: 2px 4px;
+      border-radius: 2px;
+      color: #856404;
+    }
   }
 
   &__error {
