@@ -1,5 +1,5 @@
+import React from 'react'
 import { Button, Message } from '@arco-design/web-react'
-
 import FormulaEditor, { DEFAULT_EXAMPLE_FORMULAS } from './FormulaEditor'
 import { evaluateFormula } from './evaluateFormula'
 import type { SupportedFunctionType } from './constants'

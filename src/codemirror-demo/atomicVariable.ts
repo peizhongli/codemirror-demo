@@ -20,6 +20,13 @@ function findVariableAt(state: EditorState, pos: number): { from: number; to: nu
 }
 
 /**
+ * 获取所有变量列表
+ */
+function getAllVariables(state: EditorState): Array<{ from: number; to: number }> {
+  return getRealVariables(state)
+}
+
+/**
  * 获取光标位置左边最近的变量
  */
 function getVariableBefore(state: EditorState, pos: number): { from: number; to: number } | null {
@@ -44,6 +51,9 @@ export function atomicVariables(): Extension {
     return false
   })
   
+  // 存储已添加的事件处理器，避免重复添加
+  const handlerMap = new WeakMap<HTMLElement, (event: KeyboardEvent) => void>()
+  
   // 直接在 DOM 上添加事件监听
   const domPlugin = EditorView.updateListener.of((update) => {
     // 只在第一次更新时添加事件监听
@@ -51,24 +61,30 @@ export function atomicVariables(): Extension {
       const view = update.view
       const dom = view.dom
       
+      // 如果已有处理器，先移除
+      const existingHandler = handlerMap.get(dom)
+      if (existingHandler) {
+        dom.removeEventListener('keydown', existingHandler, true)
+      }
+      
       // 添加 keydown 事件监听
       const handleKeyDown = (event: KeyboardEvent) => {
-        // console.log('🚀🚀🚀 DOM keydown:', event.key, event.code)
+        // console.log('🚀 DOM keydown:', event.key, event.code)
         
         const { from, to } = view.state.selection.main
         const pos = from === to ? from : Math.min(from, to)
         
         // 处理左箭头
         if (event.key === 'ArrowLeft') {
-          // console.log('🚀🚀🚀 ArrowLeft detected, pos:', pos)
+          console.log('⬅️ ArrowLeft detected, pos:', pos)
           
           if (pos > 0) {
             const variable = findVariableAt(view.state, pos)
-            // console.log('🚀🚀🚀 variable at pos:', variable)
+            console.log('⬅️ variable at pos:', variable)
             
             if (variable) {
               if (pos === variable.to) {
-                // console.log('🚀🚀🚀 moving to variable left:', variable.from)
+                console.log('️ At variable end, moving to variable start:', variable.from)
                 view.dispatch({
                   selection: { anchor: variable.from, head: variable.from }
                 })
@@ -76,7 +92,7 @@ export function atomicVariables(): Extension {
                 event.stopPropagation()
                 return
               } else if (pos > variable.from) {
-                // console.log('🚀🚀🚀 moving from inside to left:', variable.from)
+                console.log('️ Inside variable, moving to variable start:', variable.from)
                 view.dispatch({
                   selection: { anchor: variable.from, head: variable.from }
                 })
@@ -87,12 +103,12 @@ export function atomicVariables(): Extension {
             }
             
             const prevVariable = getVariableBefore(view.state, pos)
-            // console.log('🚀🚀🚀 prevVariable:', prevVariable)
+            console.log('⬅️ prevVariable:', prevVariable)
             
             if (prevVariable) {
-              // console.log('🚀🚀🚀 moving to prevVariable left:', prevVariable.from)
+              console.log('⬅️ moving to prevVariable end:', prevVariable.to)
               view.dispatch({
-                selection: { anchor: prevVariable.from, head: prevVariable.from }
+                selection: { anchor: prevVariable.to, head: prevVariable.to }
               })
               event.preventDefault()
               event.stopPropagation()
@@ -103,21 +119,23 @@ export function atomicVariables(): Extension {
         
         // 处理右箭头
         if (event.key === 'ArrowRight') {
-          // console.log('🚀🚀🚀 ArrowRight detected, pos:', pos)
+          console.log('️ ArrowRight detected, pos:', pos, 'from:', from, 'to:', to)
           
           // 如果有选区（不是单纯的光标），让默认行为处理
           if (from !== to) {
+            console.log('➡️ Has selection, letting default handle')
             return
           }
           
           const docLength = view.state.doc.length
+          console.log('➡️ docLength:', docLength)
           if (pos < docLength) {
             const variable = findVariableAt(view.state, pos)
-            // console.log('🚀🚀🚀 variable at pos:', variable)
+            console.log('➡️ variable at pos:', variable)
             
             if (variable) {
               if (pos === variable.from) {
-                // console.log('🚀🚀🚀 moving to variable right:', variable.to)
+                console.log('➡️ At variable start, moving to variable end:', variable.to)
                 view.dispatch({
                   selection: { anchor: variable.to, head: variable.to }
                 })
@@ -125,15 +143,33 @@ export function atomicVariables(): Extension {
                 event.stopPropagation()
                 return
               } else if (pos < variable.to) {
-                // console.log('🚀🚀🚀 moving from inside to right:', variable.to)
+                console.log('➡️ Inside variable, moving to variable end:', variable.to)
                 view.dispatch({
                   selection: { anchor: variable.to, head: variable.to }
                 })
                 event.preventDefault()
                 event.stopPropagation()
                 return
+              } else if (pos === variable.to) {
+                // 在变量末尾，检查下一个位置是否有变量
+                const nextVariable = findVariableAt(view.state, pos + 1)
+                console.log('➡️ At variable end, checking next position:', pos + 1, 'nextVariable:', nextVariable)
+                if (nextVariable) {
+                  // 如果下一个变量的起始位置等于当前位置（连续变量），直接跳到末尾
+                  // 如果下一个变量的起始位置大于当前位置（中间有空格），跳到起始位置
+                  const targetPos = nextVariable.from === pos ? nextVariable.to : nextVariable.from
+                  console.log('➡️ Found next variable, moving to:', targetPos)
+                  view.dispatch({
+                    selection: { anchor: targetPos, head: targetPos }
+                  })
+                  event.preventDefault()
+                  event.stopPropagation()
+                  return
+                }
               }
             }
+            
+            console.log('➡️ No variable at current position, default behavior')
           }
         }
         
@@ -213,10 +249,10 @@ export function atomicVariables(): Extension {
         }
       }
       
-      // 移除旧的监听
-      dom.removeEventListener('keydown', handleKeyDown)
       // 添加新的监听，使用捕获阶段
       dom.addEventListener('keydown', handleKeyDown, true)
+      // 存储处理器引用
+      handlerMap.set(dom, handleKeyDown)
     }
   })
 

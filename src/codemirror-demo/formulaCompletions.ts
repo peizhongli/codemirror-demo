@@ -1,9 +1,9 @@
 import { Completion, CompletionContext, CompletionSource } from '@codemirror/autocomplete'
-import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
-import { FormulaFunction, FORMULA_VARIABLES } from './constants'
+import { FormulaFunction } from './constants'
 import { addVariableEffect } from './variableHighlight'
+import { variableDictionary } from './variableDictionary'
 
 /** 创建函数补全选项 */
 export function createFunctionCompletions(functions: FormulaFunction[]): Completion[] {
@@ -27,49 +27,57 @@ export function createFunctionCompletions(functions: FormulaFunction[]): Complet
   }))
 }
 
-const variableCompletions = FORMULA_VARIABLES.map((v) => ({
-  label: v.name,
-  type: 'variable',
-  detail: v.label,
-  info: `${v.path} (${v.type})`,
-  apply(view: EditorView, completion: Completion, from: number, to: number) {
-    const insertText = v.name
-    const newTo = from + insertText.length
-    view.dispatch({
-      changes: [{ from, to, insert: insertText }],
-      effects: [addVariableEffect.of({ from, to: newTo })],
-      selection: { anchor: newTo, head: newTo }
-    })
-  },
-}))
+// 从动态字典中获取变量补全选项
+const getVariableCompletions = (): Completion[] => {
+  const elements = variableDictionary.getAllElements()
+  return elements.map((element) => {
+    const displayName = variableDictionary.getDisplayNameByCode(element.code)!
+    return {
+      label: displayName,
+      type: 'variable',
+      detail: element.variableName,
+      info: `${element.dictName} (${element.type || 'unknown'})`,
+      apply(view: EditorView, _completion: Completion, from: number, to: number) {
+        const insertText = displayName
+        const newTo = from + insertText.length
+        view.dispatch({
+          changes: [{ from, to, insert: insertText }],
+          effects: [addVariableEffect.of({ from, to: newTo })],
+          selection: { anchor: newTo, head: newTo }
+        })
+      },
+    }
+  })
+}
 
 /** 创建公式补全源 */
 export function createFormulaCompletionSource(functions: FormulaFunction[]): CompletionSource {
   const functionCompletions = createFunctionCompletions(functions)
 
   return (context: CompletionContext) => {
+    // 支持中文字符的正则表达式
     const fnMatch = context.matchBefore(/[A-Za-z_][\w]*/)
-    const varMatch = context.matchBefore(/[A-Za-z_][\w_.]*/)
+    const varMatch = context.matchBefore(/[\u4e00-\u9fa5a-zA-Z_][\u4e00-\u9fa5\w_.·]*/)
 
     const match = fnMatch || varMatch
     if (!match && !context.explicit) return null
 
     const from = match ? match.from : context.pos
-    const text = (match?.text || '').toUpperCase()
+    const text = (match?.text || '')
 
     const options: Completion[] = []
 
     if (text.length === 0 || /^[A-Z]/.test(match?.text || '') || context.explicit) {
       options.push(
         ...functionCompletions.filter(
-          (c) => !text || c.label.toString().toUpperCase().startsWith(text)
+          (c: Completion) => !text || c.label.toString().toUpperCase().startsWith(text.toUpperCase())
         )
       )
     }
 
     options.push(
-      ...variableCompletions.filter(
-        (c) => !text || c.label.toString().toUpperCase().includes(text)
+      ...getVariableCompletions().filter(
+        (c: Completion) => !text || c.label.toString().includes(text)
       )
     )
 
@@ -78,7 +86,7 @@ export function createFormulaCompletionSource(functions: FormulaFunction[]): Com
     return {
       from,
       options,
-      validFor: /^[\w.]*$/,
+      validFor: /^[\u4e00-\u9fa5\w_.·]*$/,
     }
   }
 }

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
+import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
@@ -8,9 +8,9 @@ import { highlightSelectionMatches } from '@codemirror/search'
 import { keymap } from '@codemirror/view'
 import { spreadsheet } from 'codemirror-lang-spreadsheet'
 
+
 import {
   FormulaFunction,
-  FORMULA_VARIABLES,
   getFormulaFunctions,
   SupportedFunctionType,
   DEFAULT_SUPPORTED_FUNCTIONS,
@@ -19,6 +19,7 @@ import { createFormulaCompletionSource } from './formulaCompletions'
 import { atomicVariables } from './atomicVariable'
 import { getCurrentParamIndex, getHighlightedParam } from './functionParams'
 import { variableHighlight, insertVariable } from './variableHighlight'
+import { variableDictionary } from './variableDictionary'
 import './index.scss'
 
 interface Props {
@@ -33,11 +34,13 @@ interface Props {
 }
 
 const DEFAULT_EXAMPLE_FORMULAS = [
-  'SUM(first_deep1, second)',
-  'AVERAGE(first_deep1, second)',
-  'MAX(first_deep1, second)',
-  'MIN(first_deep1, second)',
+  'SUM(财务·收入, 财务·支出)',
+  'AVERAGE(人事·员工数, 人事·工资)',
+  'MAX(财务·收入, 财务·支出)',
+  'MIN(财务·收入, 财务·支出)',
 ]
+
+
 
 export default function FormulaEditor({
   initialValue = DEFAULT_EXAMPLE_FORMULAS[0],
@@ -51,6 +54,22 @@ export default function FormulaEditor({
   const [error, setError] = useState<string | null>(null)
   const [highlightedParam, setHighlightedParam] = useState<string | null>(null)
   const editorRef = useRef<{ view: EditorView; state: unknown } | null>(null)
+
+  // 初始化动态变量字典（示例）
+  useEffect(() => {
+    // 清空字典
+    variableDictionary.clear()
+    
+    // 添加示例变量
+    variableDictionary.addVariables([
+      { code: 'var1', dictName: '财务', variableName: '收入', type: 'number' },
+      { code: 'var2', dictName: '财务', variableName: '支出', type: 'number' },
+      { code: 'var3', dictName: '人事', variableName: '员工数', type: 'number' },
+      { code: 'var4', dictName: '人事', variableName: '工资', type: 'number' },
+      { code: 'var5', dictName: '财务', variableName: '收入', type: 'number' }, // 重名测试
+      { code: 'var6', dictName: '财务', variableName: '收入', type: 'number' }, // 重名测试
+    ])
+  }, [])
 
   // 计算实际使用的函数列表
   const functions = useMemo(() => {
@@ -240,14 +259,17 @@ export default function FormulaEditor({
         <section>
           <h4>变量</h4>
           <ul>
-            {FORMULA_VARIABLES.map((v) => (
-              <li key={v.name}>
-                <button type="button" onClick={() => handleInsert(v.name)} title={v.path}>
-                  <span className="label">{v.label}</span>
-                  <code>{v.name}</code>
-                </button>
-              </li>
-            ))}
+            {variableDictionary.getAllElements().map((element) => {
+              const displayName = variableDictionary.getDisplayNameByCode(element.code)!
+              return (
+                <li key={element.code}>
+                  <button type="button" onClick={() => handleInsert(displayName)} title={`${element.dictName}·${element.variableName}`}>
+                    <span className="label">{element.variableName}</span>
+                    <code>{displayName}</code>
+                  </button>
+                </li>
+              )
+            })}
           </ul>
         </section>
         <section>
