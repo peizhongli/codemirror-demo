@@ -18,6 +18,7 @@ import {
 import { createFormulaCompletionSource } from './formulaCompletions'
 import { atomicVariables } from './atomicVariable'
 import { getCurrentParamIndex, getHighlightedParam } from './functionParams'
+import { variableHighlight, insertVariable } from './variableHighlight'
 import './index.scss'
 
 interface Props {
@@ -82,6 +83,7 @@ export default function FormulaEditor({
       }),
       keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...completionKeymap]),
       atomicVariables(),
+      variableHighlight(),
       EditorView.updateListener.of((update) => {
         if (update.selectionSet) {
           const view = update.view
@@ -146,13 +148,19 @@ export default function FormulaEditor({
           
           // 判断是否是函数（以()结尾）
           const isFunction = text.endsWith('()')
-          // 如果是函数，光标放在括号之间
-          const cursorPosition = isFunction ? from + text.length - 1 : from + text.length
           
-          view.dispatch({
-            changes: [{ from, to, insert: text }],
-            selection: { anchor: cursorPosition, head: cursorPosition }
-          })
+          if (isFunction) {
+            // 如果是函数，光标放在括号之间
+            const cursorPosition = from + text.length - 1
+            
+            view.dispatch({
+              changes: [{ from, to, insert: text }],
+              selection: { anchor: cursorPosition, head: cursorPosition }
+            })
+          } else {
+            // 如果是变量，使用 insertVariable 来标记
+            insertVariable(view, text, from, to)
+          }
           
           // 重新聚焦编辑器
           view.focus()

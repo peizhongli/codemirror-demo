@@ -1,29 +1,19 @@
 import { EditorState, Extension } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
+import { getRealVariables } from './variableHighlight'
 
 /**
  * 检查位置是否在变量内部或边界上
+ * 只检查通过点选插入的真正变量，不检查手动输入的文本
  */
 function findVariableAt(state: EditorState, pos: number): { from: number; to: number } | null {
-  const text = state.doc.toString()
+  const variables = getRealVariables(state)
   
-  let from = pos
-  while (from > 0) {
-    const char = text[from - 1]
-    if (!/[a-zA-Z0-9_]/.test(char)) break
-    from--
-  }
-  
-  let to = pos
-  while (to < text.length) {
-    const char = text[to]
-    if (!/[a-zA-Z0-9_]/.test(char)) break
-    to++
-  }
-  
-  const variableText = text.slice(from, to)
-  if (variableText.length > 0 && variableText.includes('_')) {
-    return { from, to }
+  // 查找包含该位置的变量
+  for (const variable of variables) {
+    if (pos >= variable.from && pos <= variable.to) {
+      return variable
+    }
   }
   
   return null
@@ -49,7 +39,7 @@ function getVariableBefore(state: EditorState, pos: number): { from: number; to:
 export function atomicVariables(): Extension {
   // 使用 inputHandler 在最底层拦截输入
   const inputHandler = EditorView.inputHandler.of((view, from, to, text) => {
-    console.log('🚀🚀🚀 inputHandler:', { from, to, text })
+    // console.log('🚀🚀🚀 inputHandler:', { from, to, text })
     // 返回 false 表示不处理，让默认处理继续
     return false
   })
@@ -63,22 +53,22 @@ export function atomicVariables(): Extension {
       
       // 添加 keydown 事件监听
       const handleKeyDown = (event: KeyboardEvent) => {
-        console.log('🚀🚀🚀 DOM keydown:', event.key, event.code)
+        // console.log('🚀🚀🚀 DOM keydown:', event.key, event.code)
         
         const { from, to } = view.state.selection.main
         const pos = from === to ? from : Math.min(from, to)
         
         // 处理左箭头
         if (event.key === 'ArrowLeft') {
-          console.log('🚀🚀🚀 ArrowLeft detected, pos:', pos)
+          // console.log('🚀🚀🚀 ArrowLeft detected, pos:', pos)
           
           if (pos > 0) {
             const variable = findVariableAt(view.state, pos)
-            console.log('🚀🚀🚀 variable at pos:', variable)
+            // console.log('🚀🚀🚀 variable at pos:', variable)
             
             if (variable) {
               if (pos === variable.to) {
-                console.log('🚀🚀🚀 moving to variable left:', variable.from)
+                // console.log('🚀🚀🚀 moving to variable left:', variable.from)
                 view.dispatch({
                   selection: { anchor: variable.from, head: variable.from }
                 })
@@ -86,7 +76,7 @@ export function atomicVariables(): Extension {
                 event.stopPropagation()
                 return
               } else if (pos > variable.from) {
-                console.log('🚀🚀🚀 moving from inside to left:', variable.from)
+                // console.log('🚀🚀🚀 moving from inside to left:', variable.from)
                 view.dispatch({
                   selection: { anchor: variable.from, head: variable.from }
                 })
@@ -97,10 +87,10 @@ export function atomicVariables(): Extension {
             }
             
             const prevVariable = getVariableBefore(view.state, pos)
-            console.log('🚀🚀🚀 prevVariable:', prevVariable)
+            // console.log('🚀🚀🚀 prevVariable:', prevVariable)
             
             if (prevVariable) {
-              console.log('🚀🚀🚀 moving to prevVariable left:', prevVariable.from)
+              // console.log('🚀🚀🚀 moving to prevVariable left:', prevVariable.from)
               view.dispatch({
                 selection: { anchor: prevVariable.from, head: prevVariable.from }
               })
@@ -113,16 +103,21 @@ export function atomicVariables(): Extension {
         
         // 处理右箭头
         if (event.key === 'ArrowRight') {
-          console.log('🚀🚀🚀 ArrowRight detected, pos:', pos)
+          // console.log('🚀🚀🚀 ArrowRight detected, pos:', pos)
+          
+          // 如果有选区（不是单纯的光标），让默认行为处理
+          if (from !== to) {
+            return
+          }
           
           const docLength = view.state.doc.length
           if (pos < docLength) {
             const variable = findVariableAt(view.state, pos)
-            console.log('🚀🚀🚀 variable at pos:', variable)
+            // console.log('🚀🚀🚀 variable at pos:', variable)
             
             if (variable) {
               if (pos === variable.from) {
-                console.log('🚀🚀🚀 moving to variable right:', variable.to)
+                // console.log('🚀🚀🚀 moving to variable right:', variable.to)
                 view.dispatch({
                   selection: { anchor: variable.to, head: variable.to }
                 })
@@ -130,7 +125,7 @@ export function atomicVariables(): Extension {
                 event.stopPropagation()
                 return
               } else if (pos < variable.to) {
-                console.log('🚀🚀🚀 moving from inside to right:', variable.to)
+                // console.log('🚀🚀🚀 moving from inside to right:', variable.to)
                 view.dispatch({
                   selection: { anchor: variable.to, head: variable.to }
                 })
@@ -144,16 +139,16 @@ export function atomicVariables(): Extension {
         
         // 处理退格键
         if (event.key === 'Backspace') {
-          console.log('🚀🚀🚀 Backspace detected, pos:', pos)
+          // console.log('🚀🚀🚀 Backspace detected, pos:', pos)
           
           if (from !== to) return
           
           if (pos > 0) {
             const variable = findVariableAt(view.state, pos)
-            console.log('🚀🚀🚀 variable at pos:', variable)
+            // console.log('🚀🚀🚀 variable at pos:', variable)
             
             if (variable && pos === variable.to) {
-              console.log('🚀🚀🚀 deleting variable:', variable)
+              // console.log('🚀🚀🚀 deleting variable:', variable)
               view.dispatch({
                 changes: { from: variable.from, to: variable.to, insert: '' },
                 selection: { anchor: variable.from, head: variable.from }
@@ -164,10 +159,10 @@ export function atomicVariables(): Extension {
             }
             
             const prevVariable = getVariableBefore(view.state, pos)
-            console.log('🚀🚀🚀 prevVariable:', prevVariable)
+            // console.log('🚀🚀🚀 prevVariable:', prevVariable)
             
             if (prevVariable) {
-              console.log('🚀🚀🚀 deleting prevVariable:', prevVariable)
+              // console.log('🚀🚀🚀 deleting prevVariable:', prevVariable)
               view.dispatch({
                 changes: { from: prevVariable.from, to: prevVariable.to, insert: '' },
                 selection: { anchor: prevVariable.from, head: prevVariable.from }
@@ -181,17 +176,17 @@ export function atomicVariables(): Extension {
         
         // 处理删除键
         if (event.key === 'Delete') {
-          console.log('🚀🚀🚀 Delete detected, pos:', pos)
+          // console.log('🚀🚀🚀 Delete detected, pos:', pos)
           
           if (from !== to) return
           
           const docLength = view.state.doc.length
           if (pos < docLength) {
             const variable = findVariableAt(view.state, pos)
-            console.log('🚀🚀🚀 variable at pos:', variable)
+            // console.log('🚀🚀🚀 variable at pos:', variable)
             
             if (variable) {
-              console.log('🚀🚀🚀 deleting variable:', variable)
+              // console.log('🚀🚀🚀 deleting variable:', variable)
               view.dispatch({
                 changes: { from: variable.from, to: variable.to, insert: '' },
                 selection: { anchor: variable.from, head: variable.from }
@@ -202,10 +197,10 @@ export function atomicVariables(): Extension {
             }
             
             const prevVariable = getVariableBefore(view.state, pos)
-            console.log('🚀🚀🚀 prevVariable:', prevVariable)
+            // console.log('🚀🚀🚀 prevVariable:', prevVariable)
             
             if (prevVariable) {
-              console.log('🚀🚀🚀 deleting prevVariable:', prevVariable)
+              // console.log('🚀🚀🚀 deleting prevVariable:', prevVariable)
               view.dispatch({
                 changes: { from: prevVariable.from, to: prevVariable.to, insert: '' },
                 selection: { anchor: prevVariable.from, head: prevVariable.from }

@@ -3,6 +3,7 @@ import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 
 import { FormulaFunction, FORMULA_VARIABLES } from './constants'
+import { addVariableEffect } from './variableHighlight'
 
 /** 创建函数补全选项 */
 export function createFunctionCompletions(functions: FormulaFunction[]): Completion[] {
@@ -31,6 +32,15 @@ const variableCompletions = FORMULA_VARIABLES.map((v) => ({
   type: 'variable',
   detail: v.label,
   info: `${v.path} (${v.type})`,
+  apply(view: EditorView, completion: Completion, from: number, to: number) {
+    const insertText = v.name
+    const newTo = from + insertText.length
+    view.dispatch({
+      changes: [{ from, to, insert: insertText }],
+      effects: [addVariableEffect.of({ from, to: newTo })],
+      selection: { anchor: newTo, head: newTo }
+    })
+  },
 }))
 
 /** 创建公式补全源 */
