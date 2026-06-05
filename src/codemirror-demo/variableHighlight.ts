@@ -43,23 +43,17 @@ function getDictColor(dictName: string): { color: string; bgColor: string } {
 }
 
 /**
- * 根据显示名称获取颜色类名
- */
-function getColorClassName(displayName: string): string {
-  const element = variableDictionary.getElementByDisplayName(displayName)
-  if (!element) return 'cm-formula-variable-default'
-  
-  const colorIndex = dictColorIndex.get(element.dictName) || 0
-  return `cm-formula-variable-${colorIndex}`
-}
-
-/**
  * 创建变量装饰
  */
 function createVariableDecoration(displayName: string): Decoration {
   const element = variableDictionary.getElementByDisplayName(displayName)
   if (!element) {
-    return Decoration.mark({ class: 'cm-formula-variable-default' })
+    return Decoration.mark({ 
+      class: 'cm-formula-variable-default',
+      inclusiveLeft: true,
+      inclusiveRight: true,
+      exclusive: false
+    })
   }
   
   const color = getDictColor(element.dictName)
@@ -67,7 +61,10 @@ function createVariableDecoration(displayName: string): Decoration {
     attributes: {
       style: `background-color: ${color.bgColor}; color: ${color.color}; border-color: ${color.color};`
     },
-    class: 'cm-formula-variable'
+    class: 'cm-formula-variable',
+    inclusiveLeft: true,
+    inclusiveRight: true,
+    exclusive: false
   })
 }
 
@@ -79,38 +76,50 @@ const clearVariablesEffect = StateEffect.define()
 // 创建状态字段来跟踪变量位置
 // 变量只能通过点选插入，手动输入的一定不是变量
 // 所以变量位置是固定的，不受文档变化影响
+// 变量用反引号 ` 包围来标记
 const variableState = StateField.define<DecorationSet>({
   create(state) {
-    // 初始化时扫描文档中的变量并添加装饰
+    // 初始化时扫描文档中的反引号包围的变量并添加装饰
     const builder = new RangeSetBuilder<Decoration>()
     const docText = state.doc.toString()
-    const displayNames = variableDictionary.getAllDisplayNames()
     
-    // 按长度降序排序，确保长变量优先匹配
-    const sortedNames = [...displayNames].sort((a, b) => b.length - a.length)
+    // 使用正则表达式查找所有被反引号包围的内容
+    const regex = /`([^`]+)`/g
+    let match
     
-    for (const displayName of sortedNames) {
-      let startIndex = 0
-      while ((startIndex = docText.indexOf(displayName, startIndex)) !== -1) {
-        const endIndex = startIndex + displayName.length
-        const decoration = createVariableDecoration(displayName)
-        builder.add(startIndex, endIndex, decoration)
-        startIndex = endIndex
+    while ((match = regex.exec(docText)) !== null) {
+      const content = match[1]
+      // 检查是否是字典中的变量
+      if (variableDictionary.hasDisplayName(content)) {
+        // 装饰包括反引号，但只高亮内部内容
+        const decoration = createVariableDecoration(content)
+        builder.add(match.index, match.index + match[0].length, decoration)
       }
     }
     
     return builder.finish()
   },
   update(value, tr) {
-    // 记录更新前的变量位置
-    const oldVariables: Array<{ from: number; to: number; text: string }> = []
-    value.between(0, tr.state.doc.length, (from, to) => {
-      oldVariables.push({ from, to, text: tr.state.doc.sliceString(from, to) })
-    })
-    
-    // 先调整现有 decoration 的位置以适应文档变化
+    // 如果文档内容发生变化，重新扫描所有反引号标记的变量
     if (tr.docChanged) {
-      value = value.map(tr.changes)
+      const builder = new RangeSetBuilder<Decoration>()
+      const docText = tr.newDoc.toString()
+      
+      // 使用正则表达式查找所有被反引号包围的内容
+      const regex = /`([^`]+)`/g
+      let match
+      
+      while ((match = regex.exec(docText)) !== null) {
+        const content = match[1]
+        // 检查是否是字典中的变量
+        if (variableDictionary.hasDisplayName(content)) {
+          // 装饰包括反引号，但只高亮内部内容
+          const decoration = createVariableDecoration(content)
+          builder.add(match.index, match.index + match[0].length, decoration)
+        }
+      }
+      
+      value = builder.finish()
     }
     
     // 记录更新后的变量位置
@@ -119,39 +128,9 @@ const variableState = StateField.define<DecorationSet>({
       newVariables.push({ from, to, text: tr.newDoc.sliceString(from, to) })
     })
     
-    // 检测被删除的变量
-    const deletedVariables = oldVariables.filter(oldVar => {
-      return !newVariables.some(newVar => 
-        newVar.from === oldVar.from && newVar.to === oldVar.to && newVar.text === oldVar.text
-      )
-    })
-    
-    // 对于被删除的变量，检查文档中是否还有其他位置使用
-    for (const deletedVar of deletedVariables) {
-      const variableText = deletedVar.text
-      
-      // 检查更新后的文档中是否还有该变量
-      const stillExists = newVariables.some(v => v.text === variableText)
-      
-      // 如果文档中不再存在该变量，从字典中删除
-      if (!stillExists && variableDictionary.hasDisplayName(variableText)) {
-        console.log('🗑️ Removing variable from dictionary:', variableText)
-        variableDictionary.removeByDisplayName(variableText)
-      }
-    }
-    
-    // 然后处理 effects
+    // 处理 effects
     for (const effect of tr.effects) {
-      if (effect.is(addVariableEffect)) {
-        const builder = new RangeSetBuilder<Decoration>()
-        value.between(0, tr.newDoc.length, (from, to, decoration) => {
-          builder.add(from, to, decoration)
-        })
-        // 根据 displayName 创建带有颜色的装饰
-        const decoration = createVariableDecoration(effect.value.displayName)
-        builder.add(effect.value.from, effect.value.to, decoration)
-        value = builder.finish()
-      } else if (effect.is(removeVariableEffect)) {
+      if (effect.is(removeVariableEffect)) {
         value = value.update({
           filter: (from, to) => !(from === effect.value.from && to === effect.value.to)
         })
@@ -209,10 +188,12 @@ export function isValidVariableName(text: string): boolean {
  * 插入变量时调用此函数，标记为真正的变量
  */
 export function insertVariable(view: EditorView, variableName: string, from: number, to: number) {
+  // 在变量前后添加反引号标记
+  const markedVariable = `\`${variableName}\``
   view.dispatch({
-    changes: [{ from, to, insert: variableName }],
-    effects: [addVariableEffect.of({ from, to: from + variableName.length, displayName: variableName })],
-    selection: { anchor: from + variableName.length, head: from + variableName.length }
+    changes: [{ from, to, insert: markedVariable }],
+    effects: [addVariableEffect.of({ displayName: variableName })],
+    selection: { anchor: from + markedVariable.length, head: from + markedVariable.length }
   })
 }
 
@@ -225,78 +206,97 @@ export function variableHighlight(): Extension {
     EditorView.domEventHandlers({
       paste(event, view) {
         const text = event.clipboardData?.getData('text/plain')
-        if (!text) return false
-        
-        console.log('📋 Paste detected:', text)
-        
-        // 检查粘贴的文本中是否包含变量
-        const variables: Array<{ from: number; to: number; displayName: string }> = []
-        let pos = 0
-        
-        while (pos < text.length) {
-          // 查找下一个可能的变量开始位置
-          // 支持中文字符、英文字母、下划线作为变量开头
-          let start = pos
-          while (start < text.length && !/[\u4e00-\u9fa5a-zA-Z_]/.test(text[start])) {
-            start++
-          }
-          
-          if (start >= text.length) break
-          
-          // 从当前位置开始，尝试匹配最长的有效变量
-          let foundVariable: { text: string; length: number } | null = null
-          let maxLength = 0
-          
-          // 尝试所有可能的结束位置，从最长到最短
-          // 支持中文字符、英文字母、数字、下划线、点、中文句号作为变量组成部分
-          for (let end = Math.min(start + 100, text.length); end > start; end--) {
-            const candidate = text.slice(start, end)
-            if (isValidVariableName(candidate) && candidate.length > maxLength) {
-              foundVariable = { text: candidate, length: end - start }
-              maxLength = candidate.length
-              break // 找到最长的有效变量就停止
-            }
-          }
-          
-          if (foundVariable) {
-            console.log('✅ Valid variable found:', foundVariable.text, 'at', start, '-', start + foundVariable.length)
-            variables.push({ from: start, to: start + foundVariable.length, displayName: foundVariable.text })
-            pos = start + foundVariable.length
-          } else {
-            // 没有找到有效变量，跳过一个字符
-            pos++
-          }
-        }
-        
-        console.log('📋 Total valid variables:', variables.length)
-        
-        if (variables.length === 0) {
-          console.log('📋 No valid variables, letting default paste handle')
+        if (!text) {
+          console.log('📋 Paste cancelled: No text in clipboard')
           return false
         }
         
-        // 执行粘贴并添加变量标记
+        console.log('========================================')
+        console.log('📋 Paste detected')
+        console.log('📋 Raw clipboard text:', JSON.stringify(text))
+        
+        // 获取当前选区信息
         const selection = view.state.selection.main
-        const from = selection.from
-        const to = selection.to
+        const hasSelection = selection.from !== selection.to
+        const selectedText = hasSelection ? view.state.doc.sliceString(selection.from, selection.to) : ''
         
-        // 创建变量标记效果
-        const effects = variables.map(v => 
-          addVariableEffect.of({ from: from + v.from, to: from + v.to, displayName: v.displayName })
-        )
+        console.log('📋 Has selection:', hasSelection)
+        console.log('📋 Selection range:', selection.from, '-', selection.to)
+        console.log('📋 Selected text:', JSON.stringify(selectedText))
         
-        console.log('📋 Dispatching with effects:', effects)
+        // 检查剪贴板内容
+        const trimmed = text.trim()
+        const hasNewline = text.includes('\n')
         
-        // 在一个 dispatch 中完成粘贴和添加标记
-        view.dispatch({
-          changes: [{ from, to, insert: text }],
-          effects,
-          selection: { anchor: from + text.length, head: from + text.length }
-        })
+        console.log('📋 Trimmed text:', JSON.stringify(trimmed))
+        console.log('📋 Contains newline:', hasNewline)
         
-        event.preventDefault()
-        console.log('📋 Paste completed')
-        return true
+        // 检查是否是单个变量（格式：`变量名`）
+        const singleVarMatch = trimmed.match(/^`([^`]+)`$/)
+        
+        console.log('📋 Single var match:', singleVarMatch ? 'YES' : 'NO')
+        if (singleVarMatch) {
+          console.log('📋 Variable name extracted:', singleVarMatch[1])
+          console.log('📋 Is valid variable:', variableDictionary.hasDisplayName(singleVarMatch[1]))
+        }
+        
+        // 只处理单个被反引号包围的变量
+        if (singleVarMatch) {
+          const content = singleVarMatch[1]
+          if (variableDictionary.hasDisplayName(content)) {
+            console.log('✅ Processing single valid variable')
+            
+            const from = selection.from
+            const to = selection.to
+            
+            console.log('📋 Inserting at:', from, '-', to)
+            console.log('📋 Inserting text:', JSON.stringify(trimmed))
+            
+            view.dispatch({
+              changes: [{ from, to, insert: trimmed }],
+              selection: { anchor: from + trimmed.length, head: from + trimmed.length }
+            })
+            
+            event.preventDefault()
+            console.log('✅ Paste completed successfully')
+            console.log('========================================')
+            return true
+          } else {
+            console.log('❌ Variable not in dictionary:', content)
+            console.log('❌ Available variables:', variableDictionary.getAllDisplayNames())
+          }
+        }
+        
+        // 对于其他情况，让默认粘贴处理
+        console.log('📋 Falling back to default paste behavior')
+        console.log('========================================')
+        return false
+      }
+    }),
+    EditorView.updateListener.of((update) => {
+      if (update.selectionSet) {
+        const selection = update.state.selection.main
+        const hasSelection = selection.from !== selection.to
+        
+        if (hasSelection) {
+          const selectedText = update.state.doc.sliceString(selection.from, selection.to)
+          console.log('========================================')
+          console.log('🎯 Selection changed')
+          console.log('🎯 Selection range:', selection.from, '-', selection.to)
+          console.log('🎯 Selected text:', JSON.stringify(selectedText))
+          console.log('🎯 Selected text length:', selectedText.length)
+          
+          // 检查是否选中了单个变量
+          const trimmed = selectedText.trim()
+          const isSingleVar = trimmed.match(/^`([^`]+)`$/)
+          console.log('🎯 Is single variable format:', isSingleVar ? 'YES' : 'NO')
+          
+          if (isSingleVar) {
+            console.log('🎯 Variable name:', isSingleVar[1])
+            console.log('🎯 Is valid variable:', variableDictionary.hasDisplayName(isSingleVar[1]))
+          }
+          console.log('========================================')
+        }
       }
     }),
     EditorView.baseTheme({

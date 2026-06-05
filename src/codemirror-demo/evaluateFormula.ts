@@ -1,7 +1,8 @@
 import { HyperFormula } from 'hyperformula'
 
 import { mockVariablesValue } from '../mock'
-import { flattenVariables, FORMULA_VARIABLES } from './constants'
+import { FORMULA_VARIABLES } from './constants'
+import { variableDictionary } from './variableDictionary'
 
 /** 从 mock 数据按路径取值 */
 function getValueByPath(obj: Record<string, unknown>, path: string): unknown {
@@ -35,6 +36,28 @@ function getEngine(): HyperFormula {
   return hfInstance
 }
 
+/**
+ * 处理公式中的反引号标记变量
+ * 将 `变量名` 转换为对应的值或变量引用
+ */
+function processBacktickVariables(formula: string): string {
+  // 使用正则表达式匹配所有反引号包围的内容
+  return formula.replace(/`([^`]+)`/g, (match, variableName) => {
+    // 检查是否是字典中的变量
+    if (variableDictionary.hasDisplayName(variableName)) {
+      const element = variableDictionary.getElementByDisplayName(variableName)
+      if (element) {
+        // 返回变量名（不带反引号），HyperFormula 会处理它
+        console.log('✅ Found variable:', variableName, '->', element.code)
+        return element.code
+      }
+    }
+    // 如果不是字典中的变量，保持原样
+    console.log('⚠️ Unknown variable:', variableName)
+    return match
+  })
+}
+
 export interface EvaluateResult {
   ok: boolean
   value?: unknown
@@ -48,7 +71,12 @@ export function evaluateFormula(formula: string): EvaluateResult {
     return { ok: true, value: undefined }
   }
 
-  const expression = trimmed.startsWith('=') ? trimmed : `=${trimmed}`
+  // 处理反引号标记的变量
+  const processedFormula = processBacktickVariables(trimmed)
+  console.log('📝 Original formula:', trimmed)
+  console.log('📝 Processed formula:', processedFormula)
+
+  const expression = processedFormula.startsWith('=') ? processedFormula : `=${processedFormula}`
 
   try {
     const hf = getEngine()

@@ -202,14 +202,17 @@
 // 变量高亮样式
 .cm-formula-variable {
   display: inline;
-  padding: 2px 4px;
+  padding: 2px 0;
   border-radius: 3px;
   border: 1px solid;
+  user-select: text !important;
+  cursor: text;
   
   & * {
     color: inherit !important;
     background-color: inherit !important;
     border-color: inherit !important;
+    user-select: text !important;
   }
   
   // 移除伪元素样式（避免重复边框）
@@ -221,11 +224,13 @@
 
 .cm-formula-variable-default {
   display: inline;
-  padding: 2px 4px;
+  padding: 2px 0;
   border-radius: 3px;
   border: 1px solid #86909c;
   background-color: #f7f8fa;
   color: #4e5969;
+  user-select: text !important;
+  cursor: text;
 }
 
 // 函数名样式

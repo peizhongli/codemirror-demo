@@ -2,7 +2,7 @@ import { Completion, CompletionContext, CompletionSource } from '@codemirror/aut
 import { EditorView } from '@codemirror/view'
 
 import { FormulaFunction } from './constants'
-import { addVariableEffect } from './variableHighlight'
+import { insertVariable } from './variableHighlight'
 import { variableDictionary } from './variableDictionary'
 
 /** 创建函数补全选项 */
@@ -38,13 +38,8 @@ const getVariableCompletions = (): Completion[] => {
       detail: element.variableName,
       info: `${element.dictName} (${element.type || 'unknown'})`,
       apply(view: EditorView, _completion: Completion, from: number, to: number) {
-        const insertText = displayName
-        const newTo = from + insertText.length
-        view.dispatch({
-          changes: [{ from, to, insert: insertText }],
-          effects: [addVariableEffect.of({ from, to: newTo })],
-          selection: { anchor: newTo, head: newTo }
-        })
+        // 使用 insertVariable 来插入带反引号的变量
+        insertVariable(view, displayName, from, to)
       },
     }
   })

@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
+import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
@@ -34,10 +35,10 @@ interface Props {
 }
 
 const DEFAULT_EXAMPLE_FORMULAS = [
-  'SUM(财务·收入, 财务·支出)',
-  'AVERAGE(人事·员工数, 人事·工资)',
-  'MAX(财务·收入, 财务·支出)',
-  'MIN(财务·收入, 财务·支出)',
+  'SUM(`财务·收入_2`, `财务·支出`)',
+  'AVERAGE(`人事·员工数`, `人事·工资`)',
+  'MAX(`财务·收入`, `财务·支出`)',
+  'MIN(`财务·收入`, `财务·支出`)',
 ]
 
 export default function FormulaEditor({
@@ -51,7 +52,7 @@ export default function FormulaEditor({
   const [activeFn, setActiveFn] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [highlightedParam, setHighlightedParam] = useState<string | null>(null)
-  const editorRef = useRef<{ view: EditorView; state: unknown } | null>(null)
+  const editorRef = useRef<{ view: EditorView; state?: EditorState } | null>(null)
 
   // 初始化动态变量字典（示例）
   useEffect(() => {
@@ -190,7 +191,9 @@ export default function FormulaEditor({
       }
       
       setValue((prev) => {
-        const next = prev ? `${prev}${prev.endsWith(' ') ? '' : ' '}${text}` : text
+        const isFunction = text.endsWith('()')
+        const insertText = isFunction ? text : `\`${text}\``
+        const next = prev ? `${prev}${prev.endsWith(' ') ? '' : ' '}${insertText}` : insertText
         onChange?.(next)
         return next
       })
