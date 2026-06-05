@@ -72,7 +72,7 @@ function createVariableDecoration(displayName: string): Decoration {
 }
 
 // 定义状态效果类型（导出供其他模块使用）
-export const addVariableEffect = StateEffect.define<{ from: number; to: number; displayName: string }>()
+export const addVariableEffect = StateEffect.define<{ displayName: string }>()
 const removeVariableEffect = StateEffect.define<{ from: number; to: number }>()
 const clearVariablesEffect = StateEffect.define()
 
@@ -80,8 +80,26 @@ const clearVariablesEffect = StateEffect.define()
 // 变量只能通过点选插入，手动输入的一定不是变量
 // 所以变量位置是固定的，不受文档变化影响
 const variableState = StateField.define<DecorationSet>({
-  create() {
-    return Decoration.none
+  create(state) {
+    // 初始化时扫描文档中的变量并添加装饰
+    const builder = new RangeSetBuilder<Decoration>()
+    const docText = state.doc.toString()
+    const displayNames = variableDictionary.getAllDisplayNames()
+    
+    // 按长度降序排序，确保长变量优先匹配
+    const sortedNames = [...displayNames].sort((a, b) => b.length - a.length)
+    
+    for (const displayName of sortedNames) {
+      let startIndex = 0
+      while ((startIndex = docText.indexOf(displayName, startIndex)) !== -1) {
+        const endIndex = startIndex + displayName.length
+        const decoration = createVariableDecoration(displayName)
+        builder.add(startIndex, endIndex, decoration)
+        startIndex = endIndex
+      }
+    }
+    
+    return builder.finish()
   },
   update(value, tr) {
     // 记录更新前的变量位置

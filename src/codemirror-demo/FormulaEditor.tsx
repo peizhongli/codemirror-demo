@@ -40,8 +40,6 @@ const DEFAULT_EXAMPLE_FORMULAS = [
   'MIN(财务·收入, 财务·支出)',
 ]
 
-
-
 export default function FormulaEditor({
   initialValue = DEFAULT_EXAMPLE_FORMULAS[0],
   onChange,
