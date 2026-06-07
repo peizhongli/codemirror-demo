@@ -38,23 +38,20 @@ function getEngine(): HyperFormula {
 
 /**
  * 处理公式中的反引号标记变量
- * 将 `变量名` 转换为对应的值或变量引用
+ * 只检测公式语法合法性，不计算真实结果：
+ * - 字典中能映射到的变量 → 替换为 1
+ * - 字典中映射不到的非法变量 → 保持原样不替换（让 HyperFormula 报错）
  */
 function processBacktickVariables(formula: string): string {
-  // 使用正则表达式匹配所有反引号包围的内容
-  return formula.replace(/`([^`]+)`/g, (match, variableName) => {
-    // 检查是否是字典中的变量
+  return formula.replace(/`([^`]+)`/g, (_match, variableName) => {
+    // 只替换字典中真实存在的变量
     if (variableDictionary.hasDisplayName(variableName)) {
-      const element = variableDictionary.getElementByDisplayName(variableName)
-      if (element) {
-        // 返回变量名（不带反引号），HyperFormula 会处理它
-        console.log('✅ Found variable:', variableName, '->', element.code)
-        return element.code
-      }
+      console.log('✅ Valid variable:', variableName, '-> replaced with 1')
+      return '1'
     }
-    // 如果不是字典中的变量，保持原样
-    console.log('⚠️ Unknown variable:', variableName)
-    return match
+    // 非法输入不替换，保持原样
+    console.log('⚠️ Invalid variable:', variableName, '-> kept as is')
+    return _match
   })
 }
 

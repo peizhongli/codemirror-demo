@@ -21,16 +21,13 @@ export class VariableDictionary {
   /** 变量code到变量元素的映射 */
   private codeToElement: Map<string, VariableElement> = new Map()
   
-  /** 显示名称到变量元素的映射（处理重名） */
+  /** 显示名称（字典名·变量名）到变量元素数组的映射（允许重名） */
   private displayNameToElements: Map<string, VariableElement[]> = new Map()
-  
-  /** 显示名称到code的映射（用于快速查找） */
-  private displayNameToCode: Map<string, string> = new Map()
 
   /**
-   * 添加变量到字典
+   * 添加变量到字典（允许重名）
    * @param element 变量元素
-   * @returns 返回分配的显示名称
+   * @returns 返回显示名称（字典名·变量名）
    */
   addVariable(element: VariableElement): string {
     const { code, dictName, variableName } = element
@@ -41,39 +38,17 @@ export class VariableDictionary {
       return this.getDisplayNameByCode(code)!
     }
     
-    // 生成基础显示名称
-    const baseDisplayName = `${dictName}·${variableName}`
-    
-    // 检查是否有重名
-    const existingElements = this.displayNameToElements.get(baseDisplayName) || []
-    const sameNameElements = existingElements.filter(e => 
-      e.dictName === dictName && e.variableName === variableName
-    )
-    
-    let displayName = baseDisplayName
-    let suffix = 0
-    
-    // 如果有重名，添加后缀
-    if (sameNameElements.length > 0) {
-      suffix = sameNameElements.length + 1
-      displayName = `${baseDisplayName}_${suffix}`
-      
-      // 检查新生成的显示名称是否已存在
-      while (this.displayNameToCode.has(displayName)) {
-        suffix++
-        displayName = `${baseDisplayName}_${suffix}`
-      }
-    }
+    // 生成显示名称（不再添加后缀，允许重名）
+    const displayName = `${dictName}·${variableName}`
     
     // 存储映射关系
     this.codeToElement.set(code, element)
     
-    if (!this.displayNameToElements.has(baseDisplayName)) {
-      this.displayNameToElements.set(baseDisplayName, [])
+    // 维护显示名称到变量数组的映射（支持重名）
+    if (!this.displayNameToElements.has(displayName)) {
+      this.displayNameToElements.set(displayName, [])
     }
-    this.displayNameToElements.get(baseDisplayName)!.push(element)
-    
-    this.displayNameToCode.set(displayName, code)
+    this.displayNameToElements.get(displayName)!.push(element)
     
     return displayName
   }
@@ -97,14 +72,22 @@ export class VariableDictionary {
   }
 
   /**
-   * 根据显示名称获取变量元素
+   * 根据显示名称获取所有同名变量元素
+   * @param displayName 显示名称
+   * @returns 变量元素数组
+   */
+  getElementsByDisplayName(displayName: string): VariableElement[] {
+    return this.displayNameToElements.get(displayName) || []
+  }
+
+  /**
+   * 根据显示名称获取第一个变量元素
    * @param displayName 显示名称
    * @returns 变量元素或null
    */
   getElementByDisplayName(displayName: string): VariableElement | null {
-    const code = this.displayNameToCode.get(displayName)
-    if (!code) return null
-    return this.codeToElement.get(code) || null
+    const elements = this.displayNameToElements.get(displayName)
+    return elements ? elements[0] : null
   }
 
   /**
@@ -113,12 +96,9 @@ export class VariableDictionary {
    * @returns 显示名称或null
    */
   getDisplayNameByCode(code: string): string | null {
-    for (const [displayName, elementCode] of this.displayNameToCode.entries()) {
-      if (elementCode === code) {
-        return displayName
-      }
-    }
-    return null
+    const element = this.codeToElement.get(code)
+    if (!element) return null
+    return `${element.dictName}·${element.variableName}`
   }
 
   /**
@@ -127,7 +107,7 @@ export class VariableDictionary {
    * @returns 是否存在
    */
   hasDisplayName(displayName: string): boolean {
-    return this.displayNameToCode.has(displayName)
+    return this.displayNameToElements.has(displayName)
   }
 
   /**
@@ -140,11 +120,25 @@ export class VariableDictionary {
   }
 
   /**
-   * 获取所有显示名称
+   * 获取所有显示名称（包含重复）
    * @returns 显示名称数组
    */
   getAllDisplayNames(): string[] {
-    return Array.from(this.displayNameToCode.keys())
+    const result: string[] = []
+    for (const [displayName, elements] of this.displayNameToElements) {
+      for (let i = 0; i < elements.length; i++) {
+        result.push(displayName)
+      }
+    }
+    return result
+  }
+
+  /**
+   * 获取所有不重复的显示名称
+   * @returns 不重复的显示名称数组
+   */
+  getUniqueDisplayNames(): string[] {
+    return Array.from(this.displayNameToElements.keys())
   }
 
   /**
@@ -161,7 +155,6 @@ export class VariableDictionary {
   clear(): void {
     this.codeToElement.clear()
     this.displayNameToElements.clear()
-    this.displayNameToCode.clear()
   }
 
   /**
@@ -181,22 +174,15 @@ export class VariableDictionary {
     const element = this.codeToElement.get(code)
     if (!element) return false
     
-    // 获取显示名称
-    const displayName = this.getDisplayNameByCode(code)
-    if (displayName) {
-      // 从 displayNameToCode 中移除
-      this.displayNameToCode.delete(displayName)
-    }
-    
     // 从 displayNameToElements 中移除
-    const baseDisplayName = `${element.dictName}·${element.variableName}`
-    const existingElements = this.displayNameToElements.get(baseDisplayName)
+    const displayName = `${element.dictName}·${element.variableName}`
+    const existingElements = this.displayNameToElements.get(displayName)
     if (existingElements) {
       const index = existingElements.findIndex(e => e.code === code)
       if (index !== -1) {
         existingElements.splice(index, 1)
         if (existingElements.length === 0) {
-          this.displayNameToElements.delete(baseDisplayName)
+          this.displayNameToElements.delete(displayName)
         }
       }
     }
@@ -208,14 +194,16 @@ export class VariableDictionary {
   }
 
   /**
-   * 根据显示名称删除变量
+   * 根据显示名称删除第一个匹配的变量
    * @param displayName 显示名称
    * @returns 是否删除成功
    */
   removeByDisplayName(displayName: string): boolean {
-    const code = this.displayNameToCode.get(displayName)
-    if (!code) return false
-    return this.removeByCode(code)
+    const elements = this.displayNameToElements.get(displayName)
+    if (!elements || elements.length === 0) return false
+    
+    const firstElement = elements[0]
+    return this.removeByCode(firstElement.code)
   }
 }
 

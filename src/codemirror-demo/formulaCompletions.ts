@@ -2,8 +2,6 @@ import { Completion, CompletionContext, CompletionSource } from '@codemirror/aut
 import { EditorView } from '@codemirror/view'
 
 import { FormulaFunction } from './constants'
-import { insertVariable } from './variableHighlight'
-import { variableDictionary } from './variableDictionary'
 
 /** 创建函数补全选项 */
 export function createFunctionCompletions(functions: FormulaFunction[]): Completion[] {
@@ -27,34 +25,15 @@ export function createFunctionCompletions(functions: FormulaFunction[]): Complet
   }))
 }
 
-// 从动态字典中获取变量补全选项
-const getVariableCompletions = (): Completion[] => {
-  const elements = variableDictionary.getAllElements()
-  return elements.map((element) => {
-    const displayName = variableDictionary.getDisplayNameByCode(element.code)!
-    return {
-      label: displayName,
-      type: 'variable',
-      detail: element.variableName,
-      info: `${element.dictName} (${element.type || 'unknown'})`,
-      apply(view: EditorView, _completion: Completion, from: number, to: number) {
-        // 使用 insertVariable 来插入带反引号的变量
-        insertVariable(view, displayName, from, to)
-      },
-    }
-  })
-}
-
-/** 创建公式补全源 */
+/** 创建公式补全源（只包含函数，不包含变量） */
 export function createFormulaCompletionSource(functions: FormulaFunction[]): CompletionSource {
   const functionCompletions = createFunctionCompletions(functions)
 
   return (context: CompletionContext) => {
-    // 支持中文字符的正则表达式
+    // 只匹配函数名（以大写字母开头）
     const fnMatch = context.matchBefore(/[A-Za-z_][\w]*/)
-    const varMatch = context.matchBefore(/[\u4e00-\u9fa5a-zA-Z_][\u4e00-\u9fa5\w_.·]*/)
 
-    const match = fnMatch || varMatch
+    const match = fnMatch
     if (!match && !context.explicit) return null
 
     const from = match ? match.from : context.pos
@@ -62,17 +41,10 @@ export function createFormulaCompletionSource(functions: FormulaFunction[]): Com
 
     const options: Completion[] = []
 
-    if (text.length === 0 || /^[A-Z]/.test(match?.text || '') || context.explicit) {
-      options.push(
-        ...functionCompletions.filter(
-          (c: Completion) => !text || c.label.toString().toUpperCase().startsWith(text.toUpperCase())
-        )
-      )
-    }
-
+    // 只添加函数补全（任何输入都匹配，不区分大小写）
     options.push(
-      ...getVariableCompletions().filter(
-        (c: Completion) => !text || c.label.toString().includes(text)
+      ...functionCompletions.filter(
+        (c: Completion) => !text || c.label.toString().toUpperCase().startsWith(text.toUpperCase())
       )
     )
 
@@ -81,7 +53,7 @@ export function createFormulaCompletionSource(functions: FormulaFunction[]): Com
     return {
       from,
       options,
-      validFor: /^[\u4e00-\u9fa5\w_.·]*$/,
+      validFor: /^[\w]*$/,
     }
   }
 }

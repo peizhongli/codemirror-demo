@@ -2,13 +2,12 @@ import React, { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorState } from '@codemirror/state'
 import { EditorView } from '@codemirror/view'
-import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete'
+import { autocompletion, closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete'
 import { defaultKeymap, history, historyKeymap } from '@codemirror/commands'
 import { bracketMatching, foldGutter, indentOnInput } from '@codemirror/language'
 import { highlightSelectionMatches } from '@codemirror/search'
 import { keymap } from '@codemirror/view'
 import { spreadsheet } from 'codemirror-lang-spreadsheet'
-
 
 import {
   FormulaFunction,
@@ -19,7 +18,7 @@ import {
 import { createFormulaCompletionSource } from './formulaCompletions'
 import { atomicVariables } from './atomicVariable'
 import { getCurrentParamIndex, getHighlightedParam } from './functionParams'
-import { variableHighlight, insertVariable } from './variableHighlight'
+import { variableHighlight, insertVariable, generateFormulaParams } from './variableHighlight'
 import { variableDictionary } from './variableDictionary'
 import './index.scss'
 
@@ -35,14 +34,14 @@ interface Props {
 }
 
 const DEFAULT_EXAMPLE_FORMULAS = [
-  'SUM(`财务·收入_2`, `财务·支出`)',
+  'SUM(`财务·收入`, `财务·支出`)',
   'AVERAGE(`人事·员工数`, `人事·工资`)',
   'MAX(`财务·收入`, `财务·支出`)',
   'MIN(`财务·收入`, `财务·支出`)',
 ]
 
 export default function FormulaEditor({
-  initialValue = DEFAULT_EXAMPLE_FORMULAS[0],
+  initialValue = '', // 初始值设置为空
   onChange,
   supportedFunctions = DEFAULT_SUPPORTED_FUNCTIONS,
   customFunctions,
@@ -52,6 +51,8 @@ export default function FormulaEditor({
   const [activeFn, setActiveFn] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [highlightedParam, setHighlightedParam] = useState<string | null>(null)
+  const [calculationResult, setCalculationResult] = useState<{ param1: string; param2: Array<{ dictName: string; dictCode: string; elementName: string; elementCode: string; serialNumber: string }> } | null>(null)
+  const [showVariableSelector, setShowVariableSelector] = useState(false) // 控制变量选择器显示
   const editorRef = useRef<{ view: EditorView; state?: EditorState } | null>(null)
 
   // 初始化动态变量字典（示例）
@@ -59,14 +60,14 @@ export default function FormulaEditor({
     // 清空字典
     variableDictionary.clear()
     
-    // 添加示例变量
+    // 添加示例变量（允许重名）
     variableDictionary.addVariables([
-      { code: 'var1', dictName: '财务', variableName: '收入', type: 'number' },
-      { code: 'var2', dictName: '财务', variableName: '支出', type: 'number' },
-      { code: 'var3', dictName: '人事', variableName: '员工数', type: 'number' },
-      { code: 'var4', dictName: '人事', variableName: '工资', type: 'number' },
-      { code: 'var5', dictName: '财务', variableName: '收入', type: 'number' }, // 重名测试
-      { code: 'var6', dictName: '财务', variableName: '收入', type: 'number' }, // 重名测试
+      { code: 'finance_var1', dictName: '财务', variableName: '收入', type: 'number' },
+      { code: 'finance_var2', dictName: '财务', variableName: '支出', type: 'number' },
+      { code: 'hr_var1', dictName: '人事', variableName: '员工数', type: 'number' },
+      { code: 'hr_var2', dictName: '人事', variableName: '工资', type: 'number' },
+      { code: 'finance_var3', dictName: '财务', variableName: '收入', type: 'number' }, // 重名测试
+      { code: 'finance_var4', dictName: '财务', variableName: '收入', type: 'number' }, // 重名测试
     ])
   }, [])
 
@@ -80,7 +81,7 @@ export default function FormulaEditor({
     return new Set(functions.map(f => f.name.toUpperCase()))
   }, [functions])
 
-  // 创建补全源
+  // 创建补全源（只包含函数，不包含变量）
   const completionSource = useMemo(() => {
     return createFormulaCompletionSource(functions)
   }, [functions])
@@ -94,12 +95,8 @@ export default function FormulaEditor({
       closeBrackets(),
       foldGutter(),
       highlightSelectionMatches(),
-      autocompletion({
-        override: [completionSource],
-        activateOnTyping: true,
-        defaultKeymap: true,
-      }),
-      keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap, ...completionKeymap]),
+      keymap.of([...closeBracketsKeymap, ...defaultKeymap, ...historyKeymap]),
+      autocompletion({ override: [completionSource] }),
       atomicVariables(),
       variableHighlight(),
       EditorView.updateListener.of((update) => {
@@ -130,7 +127,7 @@ export default function FormulaEditor({
         }
       }),
     ],
-    [completionSource, functions]
+    [functions]
   )
 
   const handleChange = useCallback(
@@ -201,6 +198,32 @@ export default function FormulaEditor({
     [onChange]
   )
 
+  // 计算按钮点击事件
+  const handleCalculate = useCallback(() => {
+    const ref = editorRef.current
+    if (ref && ref.view) {
+      const state = ref.view.state
+      const params = generateFormulaParams(state)
+      
+      if (params.error) {
+        setCalculationResult(null)
+        setError(params.error)
+        return
+      }
+      
+      setError(null)
+      setCalculationResult(params)
+      
+      // 输出到控制台
+      console.log('========================================')
+      console.log('计算参数输出：')
+      console.log('参数1 (替换后的公式):', params.param1)
+      console.log('参数2 (变量映射数组):')
+      console.log(JSON.stringify(params.param2, null, 2))
+      console.log('========================================')
+    }
+  }, [])
+
   const activeFnDef = activeFn ? functions.find((f) => f.name === activeFn) : null
 
   return (
@@ -218,10 +241,68 @@ export default function FormulaEditor({
               foldGutter: false,
               highlightActiveLine: false,
             }}
-            placeholder="输入公式，如 SUM(first_deep1, second)"
+            placeholder="输入公式，如 SUM(`财务·收入`, `财务·支出`)"
             ref={editorRef}
           />
         </div>
+        
+        {/* 操作按钮 */}
+        <div className="cm-formula-editor__actions">
+          {/* 外部变量选择按钮 */}
+          <button 
+            type="button" 
+            className="cm-formula-editor__select-btn" 
+            onClick={() => setShowVariableSelector(!showVariableSelector)}
+          >
+            {showVariableSelector ? '收起变量' : '选择变量'}
+          </button>
+          
+          {/* 计算按钮 */}
+          <button type="button" className="cm-formula-editor__calculate-btn" onClick={handleCalculate}>
+            计算
+          </button>
+        </div>
+        
+        {/* 外部变量选择器 */}
+        {showVariableSelector && (
+          <div className="cm-formula-editor__variable-selector">
+            <h4>选择变量插入</h4>
+            <div className="cm-formula-editor__variable-grid">
+              {variableDictionary.getAllElements().map((element) => {
+                const displayName = variableDictionary.getDisplayNameByCode(element.code)!
+                return (
+                  <button 
+                    key={element.code} 
+                    type="button" 
+                    className="cm-formula-editor__variable-item"
+                    onClick={() => {
+                      handleInsert(displayName)
+                    }}
+                  >
+                    <span className="label">{element.dictName}</span>
+                    <span className="name">{element.variableName}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        
+        {/* 计算结果展示 */}
+        {calculationResult && (
+          <div className="cm-formula-editor__result">
+            <h4>计算参数</h4>
+            <div className="cm-formula-editor__result-param">
+              <span className="label">参数1（替换后的公式）:</span>
+              <code>{calculationResult.param1}</code>
+            </div>
+            <div className="cm-formula-editor__result-param">
+              <span className="label">参数2（变量映射数组）:</span>
+              <pre>{JSON.stringify(calculationResult.param2, null, 2)}</pre>
+            </div>
+          </div>
+        )}
+        
         {error && (
           <div className="cm-formula-editor__error">
             <span className="cm-formula-editor__error-icon">⚠️</span>
